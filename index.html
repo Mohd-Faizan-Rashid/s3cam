@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Camera with Filters</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #1b1b1b 0%, #1f1515 100%);
+            font-family: 'Poppins', sans-serif;
+            flex-direction: column;
+        }
+
+        .camera-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #fff;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        video, canvas {
+            border: 10px solid #333;
+            border-radius: 20px;
+            width: 600px; /* Increased width */
+            height: 450px; /* Increased height */
+            object-fit: cover;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            width: 100%;
+            margin-top: 20px;
+        }
+
+        .controls button, select {
+            margin: 10px;
+            padding: 15px 30px;
+            font-size: 16px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            background-color: hwb(0 2% 11%);
+            color: #fff;
+            transition: background-color 0.3s ease;
+        }
+
+        .controls button:hover, select:hover {
+            background-color: #911111;
+        }
+
+        .slider {
+            width: 200px;
+            margin: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="camera-container">
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+</div>
+
+<div class="controls">
+    <button id="captureBtn">Capture Photo</button>
+    <button id="uploadBtn" style="display:none;">Upload Photo</button>
+    <button id="retakeBtn" style="display:none;">Retake Photo</button>
+    <button id="downloadBtn" style="display:none;">Download Photo</button>
+    
+    <select id="filterSelect">
+        <option value="none">No Filter</option>
+        <option value="grayscale(100%)">Grayscale</option>
+        <option value="sepia(100%)">Sepia</option>
+        <option value="invert(100%)">Invert</option>
+        <option value="blur(5px)">Blur</option>
+    </select>
+    
+    <button id="flipBtn">Flip Camera</button>
+
+</div>
+
+<script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const captureBtn = document.getElementById('captureBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const retakeBtn = document.getElementById('retakeBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const filterSelect = document.getElementById('filterSelect');
+    const flipBtn = document.getElementById('flipBtn');
+    const zoomSlider = document.getElementById('zoomSlider');
+
+    let stream;
+    let isFrontCamera = true; // Default to front camera
+    let currentZoom = 1;
+    let capturedPhoto = null; // To store the captured photo
+
+    // Access the user's webcam
+    function startCamera() {
+        const constraints = {
+            video: {
+                facingMode: isFrontCamera ? 'user' : 'environment',
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
+            }
+        };
+
+        navigator.mediaDevices.getUserMedia(constraints)
+            .then(mediaStream => {
+                stream = mediaStream;
+                video.srcObject = mediaStream;
+            })
+            .catch(err => {
+                console.error("Error accessing camera: ", err);
+            });
+    }
+
+    // Initialize the camera
+    startCamera();
+
+    // Apply selected filter to video
+    filterSelect.addEventListener('change', () => {
+        video.style.filter = filterSelect.value;
+    });
+
+    // Capture photo from video stream
+    captureBtn.addEventListener('click', () => {
+        const context = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        // Apply filter and draw the current video frame onto the canvas
+        context.filter = filterSelect.value;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Convert the canvas image to a data URL (base64)
+        const dataURL = canvas.toDataURL('image/png');
+        capturedPhoto = dataURL; // Store captured photo in variable
+
+        // Show the captured image in a new window
+        const imgWindow = window.open();
+        imgWindow.document.write('<img src="' + dataURL + '" style="width:100%;"/>');
+
+        // Show buttons for retaking, downloading, and uploading
+        retakeBtn.style.display = 'block';
+        downloadBtn.style.display = 'block';
+        uploadBtn.style.display = 'block'; // Show upload button
+    });
+
+    // Retake the photo
+    retakeBtn.addEventListener('click', () => {
+        retakeBtn.style.display = 'none';
+        downloadBtn.style.display = 'none';
+        uploadBtn.style.display = 'none'; // Hide upload button
+    });
+
+    // Download the captured photo
+    downloadBtn.addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        link.download = 'captured_photo.png';
+        link.click();
+    });
+
+    // Upload the captured photo to the backend
+    uploadBtn.addEventListener('click', () => {
+        if (capturedPhoto) {
+            // Convert data URL to a Blob
+            fetch(capturedPhoto)
+                .then(res => res.blob())
+                .then(blob => {
+                    const formData = new FormData();
+                    formData.append('photo', blob, 'captured_image.png');
+
+                    // Send the image to the backend
+                    fetch('/upload', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        alert('Photo uploaded to S3 successfully!');
+                        console.log('Upload result:', result);
+                    })
+                    .catch(error => {
+                        console.error('Error uploading photo:', error);
+                    });
+                });
+        }
+    });
+
+    // Flip between front and back camera
+    flipBtn.addEventListener('click', () => {
+        isFrontCamera = !isFrontCamera;
+        stream.getTracks().forEach(track => track.stop()); // Stop the current stream
+        startCamera();
+    });
+
+    // Zoom functionality
+    zoomSlider.addEventListener('input', () => {
+        currentZoom = zoomSlider.value;
+        video.style.transform = `scale(${currentZoom})`;
+    });
+</script>
+
+</body>
+</html>
